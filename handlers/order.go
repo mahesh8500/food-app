@@ -2,12 +2,14 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	orderInterface "foodApp/app/order/interface"
 	orderReqInterface "foodApp/app/order_requests/interface"
 	productInterface "foodApp/app/product/interface"
 	"foodApp/models"
 	"github.com/go-playground/validator/v10"
 	"net/http"
+	"sync"
 )
 
 type OrderHandler struct {
@@ -41,10 +43,8 @@ type OrderItemReq struct {
 
 func (h *OrderHandler) Create(w http.ResponseWriter, r *http.Request) {
 	var (
-		coupon   *string
-		req      OrderReq
-		items    []map[string]interface{}
-		products []map[string]interface{}
+		coupon *string
+		req    OrderReq
 	)
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -64,7 +64,6 @@ func (h *OrderHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Items:      itemsJSON,
 		CouponCode: coupon,
 	}
-
 	if _, err := h.OrderRequestRepo.Insert(r.Context(), rawReq); err != nil {
 		http.Error(w, "failed to save order request", http.StatusInternalServerError)
 		return
@@ -81,30 +80,52 @@ func (h *OrderHandler) Create(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	for _, item := range req.Items {
-		p, err := h.ProductRepo.Get(r.Context(), item.ProductID)
-		if err != nil {
-			http.Error(w, "validation exception", http.StatusUnprocessableEntity)
-			return
-		}
-		items = append(items, map[string]interface{}{
-			"productId": item.ProductID,
-			"quantity":  item.Quantity,
-		})
-		products = append(products, map[string]interface{}{
-			"id":       p.ID,
-			"name":     p.Name,
-			"price":    p.Price,
-			"category": p.Category,
-		})
-	}
-	productsJSON, _ := json.Marshal(products)
+	items := make([]map[string]interface{}, len(req.Items))
+	products := make([]map[string]interface{}, len(req.Items))
 
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	errs := make(chan error, len(req.Items))
+
+	for i, item := range req.Items {
+		wg.Add(1)
+		go func(i int, item OrderItemReq) {
+			defer wg.Done()
+
+			p, err := h.ProductRepo.Get(r.Context(), item.ProductID)
+			if err != nil {
+				errs <- fmt.Errorf("product %s not found", item.ProductID)
+				return
+			}
+
+			mu.Lock()
+			items[i] = map[string]interface{}{
+				"productId": item.ProductID,
+				"quantity":  item.Quantity,
+			}
+			products[i] = map[string]interface{}{
+				"id":       p.ID,
+				"name":     p.Name,
+				"price":    p.Price,
+				"category": p.Category,
+			}
+			mu.Unlock()
+		}(i, item)
+	}
+
+	wg.Wait()
+	close(errs)
+
+	if len(errs) > 0 {
+		http.Error(w, "validation exception", http.StatusUnprocessableEntity)
+		return
+	}
+	
+	productsJSON, _ := json.Marshal(products)
 	dbOrder := models.Order{
 		Items:    itemsJSON,
 		Products: productsJSON,
 	}
-
 	savedOrder, err := h.OrderRepo.Insert(r.Context(), dbOrder)
 	if err != nil {
 		http.Error(w, "failed to save order", http.StatusInternalServerError)
