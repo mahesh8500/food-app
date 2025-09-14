@@ -2,7 +2,10 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
+	"foodApp/app/product/db"
 	_interface "foodApp/app/product/interface"
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"net/http"
 )
@@ -38,9 +41,19 @@ func (p *ProductHandler) GetProductByID(w http.ResponseWriter, r *http.Request) 
 	}
 
 	productID := mux.Vars(r)["id"]
+
+	if _, err := uuid.Parse(productID); err != nil {
+		http.Error(w, "invalid ID supplied", http.StatusBadRequest)
+		return
+	}
+
 	product, err := p.ProductRepository.Get(r.Context(), productID)
 	if err != nil {
-		http.Error(w, "failed to fetch products", http.StatusInternalServerError)
+		if errors.Is(err, db.ErrNotFound) {
+			http.Error(w, "product not found", http.StatusNotFound)
+		} else {
+			http.Error(w, "failed to fetch product", http.StatusInternalServerError)
+		}
 		return
 	}
 

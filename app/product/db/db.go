@@ -38,7 +38,6 @@ func NewPool(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 		return nil, err
 	}
 
-	// Verify connection
 	ctx2, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	if err := pool.Ping(ctx2); err != nil {
@@ -74,7 +73,6 @@ func (r *pgRepo) Get(ctx context.Context, id string) (models.Product, error) {
 	var p models.Product
 	row := r.p.QueryRow(ctx, `SELECT id::text, category, name, price::double precision FROM products WHERE id = $1`, id)
 	if err := row.Scan(&p.ID, &p.Category, &p.Name, &p.Price); err != nil {
-		// check pgx error for not found
 		if err.Error() == "no rows in result set" {
 			return models.Product{}, ErrNotFound
 		}
