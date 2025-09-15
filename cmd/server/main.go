@@ -29,6 +29,9 @@ func main() {
 		"couponbase2.txt",
 		"couponbase3.txt",
 	})
+	if err != nil {
+		log.Fatalf("failed to load coupons: %v", err)
+	}
 
 	productRepo := productDB.NewPGRepository(pool)
 	orderRepo := orderDB.NewOrderRepository(pool)
@@ -37,15 +40,13 @@ func main() {
 	productHandler := handlers.NewProductHandler(productRepo)
 	orderHandler := handlers.NewOrderHandler(productRepo, orderRepo, orderRequestRepo, couponMap)
 
-	if err != nil {
-		log.Fatalf("failed to load coupons: %v", err)
-	}
-
 	router := mux.NewRouter().StrictSlash(true)
+
+	router.Use(handlers.ApiKeyMiddleware("apitest"))
 
 	router.HandleFunc("/products", productHandler.GetProducts).Methods("GET")
 	router.HandleFunc("/products/{id}", productHandler.GetProductByID).Methods("GET")
-	router.Handle("/order", handlers.ApiKeyMiddleware("apitest", http.HandlerFunc(orderHandler.Create))).Methods("POST")
+	router.HandleFunc("/order", orderHandler.Create).Methods("POST")
 
 	log.Println("Server running on :8080")
 

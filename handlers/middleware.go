@@ -2,7 +2,7 @@ package handlers
 
 import (
 	"bufio"
-	"fmt"
+	"github.com/gorilla/mux"
 	"net/http"
 	"os"
 	"strings"
@@ -10,16 +10,16 @@ import (
 )
 
 // ApiKeyMiddleware validates the api_key header before calling the next handler
-func ApiKeyMiddleware(expectedKey string, next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got := r.Header.Get("api_key")
-		fmt.Printf("DEBUG api_key header: expected='%s', got='%s'\n", expectedKey, got)
-		if r.Header.Get("api_key") != expectedKey {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+func ApiKeyMiddleware(expectedKey string) mux.MiddlewareFunc {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get("api_key") != expectedKey {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // LoadCoupons loads promo codes.
